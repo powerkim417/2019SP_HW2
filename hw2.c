@@ -18,7 +18,7 @@ DECLARE_TASKLET(ts, tasklet_handler, 0); //declare tasklet
 static struct proc_dir_entry *hw2_proc_dir = NULL;
 // static struct proc_dir_entry *hw2_proc_f
 static struct VMAI {
-    char name[16];
+    char name[TASK_COMM_LEN];
     pid_t pid;
     int lut; // jiffies_to_msecs(jiffies)
 
@@ -38,9 +38,13 @@ static struct VMAI {
     unsigned long phy_a;
 } vmai[32769];
 
-static pid_t i;
-
 static int hw2_single_show(struct seq_file *s, void *unused){
+    char *c = s->file->f_path.dentry->d_name.name;
+    int i=0;
+    while (*c){
+        i = ((*c)-'0') + num*10;
+        c++;
+    }
     seq_printf(s, "************************************************************\n");
     seq_printf(s, "Virtual Memory Address Information\n");
     seq_printf(s, "Process (%15s:%lu)\n", vmai[i].name, vmai[i].pid);
@@ -127,61 +131,71 @@ void tasklet_handler(unsigned long data){
     // remove and make directory /proc/hw2
     proc_remove(hw2_proc_dir);
     hw2_proc_dir = proc_mkdir("hw2", NULL);
-
     struct task_struct* p;
+    struct mm_struct* m;
     int a=0;
+    int i;
     int last_update_time = jiffies_to_msecs(jiffies);
     for_each_process(p) {
+        m = p->active_mm;
 
         // for kernel threads, mm is always NULL
-        if (p->mm) continue;
-        char name[6];
-        snprintf(name, sizeof(name), "%d", p->pid);
-        proc_create(name, 644, hw2_proc_dir, &hw2_proc_ops);
+        if (!m) continue;
 
         i = p->pid;
-        struct mm_struct *m = p->mm;
-        strncpy(vmai[i].name, p->comm, 16);
-        vmai[i].pid = p->pid;
+
+        strncpy(vmai[i].name, p->comm, TASK_COMM_LEN);
+        vmai[i].pid = i;
         vmai[i].lut = last_update_time;
+        // printk("%d, %s", i, name);
+        // if (!m) printk("mm null process: %d\n", i);
+
         vmai[i].ca_s = m->start_code;
         vmai[i].ca_e = m->end_code;
         vmai[i].da_s = m->start_data;
         vmai[i].da_e = m->end_data;
         // vmai[i].ba_s = m->;
         // vmai[i].ba_e = m->;
-        // vmai[i].ha_s = m->;
-        // vmai[i].ha_e = m->;
+        vmai[i].ha_s = m->start_brk;
+        vmai[i].ha_e = m->brk;
         // vmai[i].sla_s = m->;
         // vmai[i].sla_e = m->;
         // vmai[i].sa_s = m->start_stack;
-        // vmai[i].sa_e = m->end_stack;
+        vmai[i].sa_e = m->start_stack;
 
         unsigned long msb_clear;
-        // vmai[i].pgd_ba = m->pgd;
-        // vmai[i].pgd_a = pgd_offset(m, vmai[i].ca_s);
-        // vmai[i].pgd_v = (unsigned) pgd_val(*pgd_offset(m, vmai[i].ca_s));
-        // msb_clear = (vmai[i].pgd_v << 1) >> 1;
-        // vmai[i].pgd_pfna = msb_clear >> PAGE_SHIFT;
+        vmai[i].pgd_ba = m->pgd;
+        vmai[i].pgd_a = pgd_offset(m, vmai[i].ca_s);
+        vmai[i].pgd_v = (unsigned) pgd_val(*pgd_offset(m, vmai[i].ca_s));
+        msb_clear = (vmai[i].pgd_v << 1) >> 1;
+        vmai[i].pgd_pfna = msb_clear >> PAGE_SHIFT;
 
-        // vmai[i].pud_a = pud_offset(p4d_offset(vmai[i].pgd_a, vmai[i].ca_s), vmai[i].ca_s);
-        // vmai[i].pud_v = (unsigned) pud_val(*pud_offset(p4d_offset(vmai[i].pgd_a, vmai[i].ca_s), vmai[i].ca_s));
-        // msb_clear = (vmai[i].pud_v << 1) >> 1;
-        // vmai[i].pud_pfna = msb_clear >> PAGE_SHIFT;
+        vmai[i].pud_a = pud_offset(p4d_offset(vmai[i].pgd_a, vmai[i].ca_s), vmai[i].ca_s);
+        vmai[i].pud_v = (unsigned) pud_val(*pud_offset(p4d_offset(vmai[i].pgd_a, vmai[i].ca_s), vmai[i].ca_s));
+        msb_clear = (vmai[i].pud_v << 1) >> 1;
+        vmai[i].pud_pfna = msb_clear >> PAGE_SHIFT;
 
-        // vmai[i].pmd_a = pmd_offset(vmai[i].pud_a, vmai[i].ca_s);
-        // vmai[i].pmd_v = (unsigned) pmd_val(*pmd_offset(vmai[i].pud_a, vmai[i].ca_s));
-        // msb_clear = (vmai[i].pud_v << 1) >> 1;
-        // vmai[i].pmd_pfna = msb_clear >> PAGE_SHIFT;
+        vmai[i].pmd_a = pmd_offset(vmai[i].pud_a, vmai[i].ca_s);
+        vmai[i].pmd_v = (unsigned) pmd_val(*pmd_offset(vmai[i].pud_a, vmai[i].ca_s));
+        msb_clear = (vmai[i].pud_v << 1) >> 1;
+        vmai[i].pmd_pfna = msb_clear >> PAGE_SHIFT;
 
-        // vmai[i].pte_a = pte_offset_kernel(vmai[i].pmd_a, vmai[i].ca_s);
-        // vmai[i].pte_v = (unsigned) pte_val(*pte_offset_kernel(vmai[i].pmd_a, vmai[i].ca_s));
-        // msb_clear = (vmai[i].pud_v << 1) >> 1;
-        // vmai[i].pte_pba = msb_clear >> PAGE_SHIFT;
-        // a++;
+        vmai[i].pte_a = pte_offset_kernel(vmai[i].pmd_a, vmai[i].ca_s);
+        vmai[i].pte_v = (unsigned) pte_val(*pte_offset_kernel(vmai[i].pmd_a, vmai[i].ca_s));
+        msb_clear = (vmai[i].pud_v << 1) >> 1;
+        vmai[i].pte_pba = msb_clear >> PAGE_SHIFT;
+
+        char name[6];
+        snprintf(name, sizeof(name), "%d", i);
+        printk("before: %d", i);
+        proc_create(name, 644, hw2_proc_dir, &hw2_proc_ops);
+        printk("after: %d", i);
+
+        a++;
         // printk("Current process pid: %d\n", p->pid);
     }
-    printk("Number of processes: %d\n", a);
+    // printk("%d %s\n", vmai[1].pid, vmai[1].name);
+    printk("Tasklet running! Number of processes: %d\n", a);
 }
 
 void timer_handler(struct timer_list *t){
