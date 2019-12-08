@@ -26,25 +26,22 @@ static struct VMAI {
     unsigned long ca_p, da_p, ba_p, ha_p, sla_p, sa_p;
 
     unsigned long pgd_ba, pgd_a, pgd_v, pgd_pfna;
-    // pgd_ps, pgd_ab, pgd_cdb, pgd_pwt, pgd_usb, pgd_rwb, pgd_ppb;
+    char* pgd_ps, pgd_ab, pgd_cdb, pgd_pwt, pgd_usb, pgd_rwb, pgd_ppb;
 
     unsigned long pud_a, pud_v, pud_pfna;
 
     unsigned long pmd_a, pmd_v, pmd_pfna;
 
     unsigned long pte_a, pte_v, pte_pba;
-    // pte_db, pte_ab, pte_cdb, pte_pwt, pte_usb, pte_rwb, pte_ppb;
+    char* pte_db, pte_ab, pte_cdb, pte_pwt, pte_usb, pte_rwb, pte_ppb;
 
     unsigned long phy_a;
 } vmai[32769];
 
 static int hw2_single_show(struct seq_file *s, void *unused){
-    char *c = s->file->f_path.dentry->d_name.name;
-    int i=0;
-    while (*c){
-        i = ((*c)-'0') + num*10;
-        c++;
-    }
+    const unsigned char *c = s->file->f_path.dentry->d_name.name;
+    char **ep;
+    int i = simple_strtol(c, ep, 10);
     seq_printf(s, "************************************************************\n");
     seq_printf(s, "Virtual Memory Address Information\n");
     seq_printf(s, "Process (%15s:%lu)\n", vmai[i].name, vmai[i].pid);
@@ -145,24 +142,37 @@ void tasklet_handler(unsigned long data){
         i = p->pid;
 
         strncpy(vmai[i].name, p->comm, TASK_COMM_LEN);
+
+        // pid, last update time
         vmai[i].pid = i;
         vmai[i].lut = last_update_time;
-        // printk("%d, %s", i, name);
-        // if (!m) printk("mm null process: %d\n", i);
 
+        // Each area info
         vmai[i].ca_s = m->start_code;
         vmai[i].ca_e = m->end_code;
+        vmai[i].ca_p = (vmai[i].ca_e-vmai[i].ca_s) / 4096;
+
         vmai[i].da_s = m->start_data;
         vmai[i].da_e = m->end_data;
+        vmai[i].da_p = (vmai[i].da_e-vmai[i].da_s) / 4096;
+
         // vmai[i].ba_s = m->;
         // vmai[i].ba_e = m->;
+        vmai[i].ba_p = (vmai[i].ba_e-vmai[i].ba_s) / 4096;
+
         vmai[i].ha_s = m->start_brk;
         vmai[i].ha_e = m->brk;
+        vmai[i].ha_p = (vmai[i].ha_e-vmai[i].ha_s) / 4096;
+
         // vmai[i].sla_s = m->;
         // vmai[i].sla_e = m->;
+        vmai[i].sla_p = (vmai[i].sla_e-vmai[i].sla_s) / 4096;
+
         // vmai[i].sa_s = m->start_stack;
         vmai[i].sa_e = m->start_stack;
+        vmai[i].sa_p = (vmai[i].sa_e-vmai[i].sa_s) / 4096;
 
+        // 1 level paging (PGD Info)
         unsigned long msb_clear;
         vmai[i].pgd_ba = m->pgd;
         vmai[i].pgd_a = pgd_offset(m, vmai[i].ca_s);
@@ -170,20 +180,51 @@ void tasklet_handler(unsigned long data){
         msb_clear = (vmai[i].pgd_v << 1) >> 1;
         vmai[i].pgd_pfna = msb_clear >> PAGE_SHIFT;
 
+        vmai[i].pgd_ps = ((vmai[i].pgd_v >> 7)%2 == 0) ? "4KB" : "4MB";
+        vmai[i].pgd_ab = ((vmai[i].pgd_v >> 5)%2 == 0) ? "0" : "1";
+        vmai[i].pgd_cdb = ((vmai[i].pgd_v >> 4)%2 == 0) ? "false" : "true";
+        vmai[i].pgd_pwt = ((vmai[i].pgd_v >> 3)%2 == 0) ? "write-back" : "write-through";
+        vmai[i].pgd_usb = ((vmai[i].pgd_v >> 2)%2 == 0) ? "supervisor" : "user";
+        vmai[i].pgd_rwb = ((vmai[i].pgd_v >> 1)%2 == 0) ? "read-only" : "read-write";
+        vmai[i].pgd_ppb = (vmai[i].pgd_v%2 == 0) ? "0" : "1";
+
+        if ((vmai[i].pgd_v >> 7)%2 == 1){ // if page size is 4MB
+            vmai[i].ca_p /= 1024;
+            vmai[i].da_p /= 1024;
+            vmai[i].ba_p /= 1024;
+            vmai[i].ha_p /= 1024;
+            vmai[i].sla_p /= 1024;
+            vmai[i].sa_p /= 1024;
+        }
+
+        // 2 level paging (PUD Info)
         vmai[i].pud_a = pud_offset(p4d_offset(vmai[i].pgd_a, vmai[i].ca_s), vmai[i].ca_s);
         vmai[i].pud_v = (unsigned) pud_val(*pud_offset(p4d_offset(vmai[i].pgd_a, vmai[i].ca_s), vmai[i].ca_s));
         msb_clear = (vmai[i].pud_v << 1) >> 1;
         vmai[i].pud_pfna = msb_clear >> PAGE_SHIFT;
 
+        // 3 level paging (PMD Info)
         vmai[i].pmd_a = pmd_offset(vmai[i].pud_a, vmai[i].ca_s);
         vmai[i].pmd_v = (unsigned) pmd_val(*pmd_offset(vmai[i].pud_a, vmai[i].ca_s));
-        msb_clear = (vmai[i].pud_v << 1) >> 1;
+        msb_clear = (vmai[i].pmd_v << 1) >> 1;
         vmai[i].pmd_pfna = msb_clear >> PAGE_SHIFT;
 
+        // 4 level paging (PTE Info)
         vmai[i].pte_a = pte_offset_kernel(vmai[i].pmd_a, vmai[i].ca_s);
         vmai[i].pte_v = (unsigned) pte_val(*pte_offset_kernel(vmai[i].pmd_a, vmai[i].ca_s));
-        msb_clear = (vmai[i].pud_v << 1) >> 1;
+        msb_clear = (vmai[i].pte_v << 1) >> 1;
         vmai[i].pte_pba = msb_clear >> PAGE_SHIFT;
+
+        vmai[i].pte_db = ((vmai[i].pgd_v >> 7)%2 == 0) ? "0" : "1";
+        vmai[i].pte_ab = ((vmai[i].pgd_v >> 5)%2 == 0) ? "0" : "1";
+        vmai[i].pte_cdb = ((vmai[i].pgd_v >> 4)%2 == 0) ? "false" : "true";
+        vmai[i].pte_pwt = ((vmai[i].pgd_v >> 3)%2 == 0) ? "write-back" : "write-through";
+        vmai[i].pte_usb = ((vmai[i].pgd_v >> 2)%2 == 0) ? "supervisor" : "user";
+        vmai[i].pte_rwb = ((vmai[i].pgd_v >> 1)%2 == 0) ? "read-only" : "read-write";
+        vmai[i].pte_ppb = (vmai[i].pgd_v%2 == 0) ? "0" : "1";
+
+        // Physical address
+        vmai[i].phy_a = (vmai[i].pte_pba << PAGE_SHIFT) + vmai[i].ca_s;
 
         char name[6];
         snprintf(name, sizeof(name), "%d", i);
