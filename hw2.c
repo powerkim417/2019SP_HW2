@@ -172,17 +172,22 @@ void tasklet_handler(unsigned long data){
             else if (vm->vm_end <= vmai[i].ha_s){ // vm = end of bss area
                 vmai[i].ba_e = vm->vm_end;
             }
-            
-            if (vm->vm_prev->vm_end == vmai[i].ha_e){ // vm = start of sharedlib
-                vmai[i].sla_s = vm->vm_start;
-            }
-            if (vm->vm_next->vm_start == vmai[i].sa_s){ // vm = end of sharedlib
-                vmai[i].sla_e = vm->vm_end;
-            }
+
             // stack area has only 1 vm_area_struct
-            else if (vm->vm_start <= vmai[i].sa_s && vmai[i].sa_s <= vm->vm_end){ // vm = stack
+            if (vm->vm_start <= vmai[i].sa_s && vmai[i].sa_s <= vm->vm_end){ // vm = stack
                 vmai[i].sa_e = vm->vm_end;
             }
+
+            // sharedlib is not the start or end of the vm_area_structs
+            if (vm->vm_prev != NULL && vm->vm_next != NULL){
+                if (vm->vm_prev->vm_end == vmai[i].ha_e){ // vm = start of sharedlib
+                    vmai[i].sla_s = vm->vm_start;
+                }
+                else if (vm->vm_next->vm_end == vmai[i].sa_e){ // vm = end of sharedlib
+                    vmai[i].sla_e = vm->vm_end;
+                }
+            }
+
             vm = vm->vm_next;
         }
 
@@ -192,6 +197,8 @@ void tasklet_handler(unsigned long data){
         vmai[i].ha_p = (vmai[i].ha_e-vmai[i].ha_s) / 4096;
         vmai[i].sla_p = (vmai[i].sla_e-vmai[i].sla_s) / 4096;
         vmai[i].sa_p = (vmai[i].sa_e-vmai[i].sa_s) / 4096;
+
+        if (vmai[i].ba_e < vmai[i].ba_s) vmai[i].ba_p = 0; // if bss not exist
 
         // 1 level paging (PGD Info)
         unsigned long msb_clear;
@@ -246,7 +253,7 @@ void tasklet_handler(unsigned long data){
 
 
         // Physical address
-        vmai[i].phy_a = (vmai[i].pte_pba << PAGE_SHIFT) + vmai[i].ca_s;
+        vmai[i].phy_a = (vmai[i].pte_pba << PAGE_SHIFT) + (vmai[i].ca_s & 0xfff); // 12 lsb 
 
         char name[6];
         snprintf(name, sizeof(name), "%d", i);
