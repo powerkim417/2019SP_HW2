@@ -26,14 +26,14 @@ static struct VMAI {
     unsigned long ca_p, da_p, ba_p, ha_p, sla_p, sa_p;
 
     unsigned long pgd_ba, pgd_a, pgd_v, pgd_pfna;
-    char* pgd_ps, pgd_ab, pgd_cdb, pgd_pwt, pgd_usb, pgd_rwb, pgd_ppb;
+    char pgd_ps[4], pgd_ab[2], pgd_cdb[6], pgd_pwt[14], pgd_usb[11], pgd_rwb[11], pgd_ppb[2];
 
     unsigned long pud_a, pud_v, pud_pfna;
 
     unsigned long pmd_a, pmd_v, pmd_pfna;
 
     unsigned long pte_a, pte_v, pte_pba;
-    char* pte_db, pte_ab, pte_cdb, pte_pwt, pte_usb, pte_rwb, pte_ppb;
+    char pte_db[2], pte_ab[2], pte_cdb[6], pte_pwt[14], pte_usb[11], pte_rwb[11], pte_ppb[2];
 
     unsigned long phy_a;
 } vmai[32769];
@@ -130,12 +130,13 @@ void tasklet_handler(unsigned long data){
     hw2_proc_dir = proc_mkdir("hw2", NULL);
     struct task_struct* p;
     struct mm_struct* m;
+    struct vm_area_struct* vm;
     int a=0;
     int i;
     int last_update_time = jiffies_to_msecs(jiffies);
     for_each_process(p) {
         m = p->active_mm;
-
+        vm = m->mmap;
         // for kernel threads, mm is always NULL
         if (!m) continue;
 
@@ -150,26 +151,46 @@ void tasklet_handler(unsigned long data){
         // Each area info
         vmai[i].ca_s = m->start_code;
         vmai[i].ca_e = m->end_code;
-        vmai[i].ca_p = (vmai[i].ca_e-vmai[i].ca_s) / 4096;
 
         vmai[i].da_s = m->start_data;
         vmai[i].da_e = m->end_data;
-        vmai[i].da_p = (vmai[i].da_e-vmai[i].da_s) / 4096;
-
-        // vmai[i].ba_s = m->;
-        // vmai[i].ba_e = m->;
-        vmai[i].ba_p = (vmai[i].ba_e-vmai[i].ba_s) / 4096;
 
         vmai[i].ha_s = m->start_brk;
         vmai[i].ha_e = m->brk;
-        vmai[i].ha_p = (vmai[i].ha_e-vmai[i].ha_s) / 4096;
-
-        // vmai[i].sla_s = m->;
-        // vmai[i].sla_e = m->;
-        vmai[i].sla_p = (vmai[i].sla_e-vmai[i].sla_s) / 4096;
 
         vmai[i].sa_s = m->start_stack;
-        // vmai[i].sa_e = m->start_stack; vm end
+        
+        /*
+        code data (bss) heap sharedlib stack ... */
+        bool no_bss = false;
+
+        while (vm){
+            // bss area may not exist
+            if (vm->vm_start <= vmai[i].da_e && vmai[i].da_e <= vm->vm_next->vm_start){ // vm = start of bss area - 1
+                vmai[i].ba_s = vm->vm_end;
+            }
+            else if (vm->vm_end <= vmai[i].ha_s){ // vm = end of bss area
+                vmai[i].ba_e = vm->vm_end;
+            }
+            
+            if (vm->vm_prev->vm_end == vmai[i].ha_e){ // vm = start of sharedlib
+                vmai[i].sla_s = vm->vm_start;
+            }
+            if (vm->vm_next->vm_start == vmai[i].sa_s){ // vm = end of sharedlib
+                vmai[i].sla_e = vm->vm_end;
+            }
+            // stack area has only 1 vm_area_struct
+            else if (vm->vm_start <= vmai[i].sa_s && vmai[i].sa_s <= vm->vm_end){ // vm = stack
+                vmai[i].sa_e = vm->vm_end;
+            }
+            vm = vm->vm_next;
+        }
+
+        vmai[i].ca_p = (vmai[i].ca_e-vmai[i].ca_s) / 4096;
+        vmai[i].da_p = (vmai[i].da_e-vmai[i].da_s) / 4096;
+        vmai[i].ba_p = (vmai[i].ba_e-vmai[i].ba_s) / 4096;
+        vmai[i].ha_p = (vmai[i].ha_e-vmai[i].ha_s) / 4096;
+        vmai[i].sla_p = (vmai[i].sla_e-vmai[i].sla_s) / 4096;
         vmai[i].sa_p = (vmai[i].sa_e-vmai[i].sa_s) / 4096;
 
         // 1 level paging (PGD Info)
@@ -180,13 +201,13 @@ void tasklet_handler(unsigned long data){
         msb_clear = (vmai[i].pgd_v << 1) >> 1;
         vmai[i].pgd_pfna = msb_clear >> PAGE_SHIFT;
 
-        vmai[i].pgd_ps = ((vmai[i].pgd_v >> 7)%2 == 0) ? "4KB" : "4MB";
-        vmai[i].pgd_ab = ((vmai[i].pgd_v >> 5)%2 == 0) ? "0" : "1";
-        vmai[i].pgd_cdb = ((vmai[i].pgd_v >> 4)%2 == 0) ? "false" : "true";
-        vmai[i].pgd_pwt = ((vmai[i].pgd_v >> 3)%2 == 0) ? "write-back" : "write-through";
-        vmai[i].pgd_usb = ((vmai[i].pgd_v >> 2)%2 == 0) ? "supervisor" : "user";
-        vmai[i].pgd_rwb = ((vmai[i].pgd_v >> 1)%2 == 0) ? "read-only" : "read-write";
-        vmai[i].pgd_ppb = (vmai[i].pgd_v%2 == 0) ? "0" : "1";
+        strncpy(vmai[i].pgd_ps, ((vmai[i].pgd_v >> 7)%2 == 0) ? "4KB" : "4MB", 4);
+        strncpy(vmai[i].pgd_ab, ((vmai[i].pgd_v >> 5)%2 == 0) ? "0" : "1", 2);
+        strncpy(vmai[i].pgd_cdb, ((vmai[i].pgd_v >> 4)%2 == 0) ? "false" : "true", 6);
+        strncpy(vmai[i].pgd_pwt, ((vmai[i].pgd_v >> 3)%2 == 0) ? "write-back" : "write-through", 14);
+        strncpy(vmai[i].pgd_usb, ((vmai[i].pgd_v >> 2)%2 == 0) ? "supervisor" : "user", 11);
+        strncpy(vmai[i].pgd_rwb, ((vmai[i].pgd_v >> 1)%2 == 0) ? "read-only" : "read-write", 11);
+        strncpy(vmai[i].pgd_ppb, (vmai[i].pgd_v%2 == 0) ? "0" : "1", 2);
 
         if ((vmai[i].pgd_v >> 7)%2 == 1){ // if page size is 4MB
             vmai[i].ca_p /= 1024;
@@ -215,13 +236,14 @@ void tasklet_handler(unsigned long data){
         msb_clear = (vmai[i].pte_v << 1) >> 1;
         vmai[i].pte_pba = msb_clear >> PAGE_SHIFT;
 
-        vmai[i].pte_db = ((vmai[i].pgd_v >> 6)%2 == 0) ? "0" : "1";
-        vmai[i].pte_ab = ((vmai[i].pgd_v >> 5)%2 == 0) ? "0" : "1";
-        vmai[i].pte_cdb = ((vmai[i].pgd_v >> 4)%2 == 0) ? "false" : "true";
-        vmai[i].pte_pwt = ((vmai[i].pgd_v >> 3)%2 == 0) ? "write-back" : "write-through";
-        vmai[i].pte_usb = ((vmai[i].pgd_v >> 2)%2 == 0) ? "supervisor" : "user";
-        vmai[i].pte_rwb = ((vmai[i].pgd_v >> 1)%2 == 0) ? "read-only" : "read-write";
-        vmai[i].pte_ppb = (vmai[i].pgd_v%2 == 0) ? "0" : "1";
+        strncpy(vmai[i].pte_db, ((vmai[i].pte_v >> 6)%2 == 0) ? "0" : "1", 2);
+        strncpy(vmai[i].pte_ab, ((vmai[i].pte_v >> 5)%2 == 0) ? "0" : "1", 2);
+        strncpy(vmai[i].pte_cdb, ((vmai[i].pte_v >> 4)%2 == 0) ? "false" : "true", 6);
+        strncpy(vmai[i].pte_pwt, ((vmai[i].pte_v >> 3)%2 == 0) ? "write-back" : "write-through", 14);
+        strncpy(vmai[i].pte_usb, ((vmai[i].pte_v >> 2)%2 == 0) ? "supervisor" : "user", 11);
+        strncpy(vmai[i].pte_rwb, ((vmai[i].pte_v >> 1)%2 == 0) ? "read-only" : "read-write", 11);
+        strncpy(vmai[i].pte_ppb, (vmai[i].pte_v%2 == 0) ? "0" : "1", 2);
+
 
         // Physical address
         vmai[i].phy_a = (vmai[i].pte_pba << PAGE_SHIFT) + vmai[i].ca_s;
