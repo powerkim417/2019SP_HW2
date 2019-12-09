@@ -198,8 +198,6 @@ void tasklet_handler(unsigned long data){
         vmai[i].sla_p = (vmai[i].sla_e-vmai[i].sla_s) / 4096;
         vmai[i].sa_p = (vmai[i].sa_e-vmai[i].sa_s) / 4096;
 
-        if (vmai[i].ba_e < vmai[i].ba_s) vmai[i].ba_p = 0; // if bss not exist
-
         // 1 level paging (PGD Info)
         unsigned long msb_clear;
         vmai[i].pgd_ba = m->pgd;
@@ -224,6 +222,15 @@ void tasklet_handler(unsigned long data){
             vmai[i].sla_p /= 1024;
             vmai[i].sa_p /= 1024;
         }
+
+        vmai[i].ca_p++;
+        vmai[i].da_p++;
+        vmai[i].ba_p++;
+        vmai[i].ha_p++;
+        vmai[i].sla_p++;
+        vmai[i].sa_p++;
+
+        if (vmai[i].ba_e < vmai[i].ba_s) vmai[i].ba_p = 0; // if bss not exist
 
         // 2 level paging (PUD Info)
         vmai[i].pud_a = pud_offset(p4d_offset(vmai[i].pgd_a, vmai[i].ca_s), vmai[i].ca_s);
