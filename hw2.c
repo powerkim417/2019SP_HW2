@@ -70,13 +70,13 @@ static int hw2_single_show(struct seq_file *s, void *unused){
     seq_printf(s, "code    PGD Address             : 0x%08lx\n", vmai[i].pgd_a);
     seq_printf(s, "        PGD Value               : 0x%08lx\n", vmai[i].pgd_v);
     seq_printf(s, "        +PFN Address            : 0x%08lx\n", vmai[i].pgd_pfna);
-    seq_printf(s, "        +Page Size              : %s\n", "4KB");
-    seq_printf(s, "        +Accessed Bit           : %s\n", "1");
-    seq_printf(s, "        +Cache Disable Bit      : %s\n", "false");
-    seq_printf(s, "        +Page Write-Through     : %s\n", "write-back");
-    seq_printf(s, "        +User/Supervisor Bit    : %s\n", "user");
-    seq_printf(s, "        +Read/Write Bit         : %s\n", "read-write");
-    seq_printf(s, "        +Page Present Bit       : %s\n", "1");
+    seq_printf(s, "        +Page Size              : %s\n", vmai[i].pgd_ps);
+    seq_printf(s, "        +Accessed Bit           : %s\n", vmai[i].pgd_ab);
+    seq_printf(s, "        +Cache Disable Bit      : %s\n", vmai[i].pgd_cdb);
+    seq_printf(s, "        +Page Write-Through     : %s\n", vmai[i].pgd_pwt);
+    seq_printf(s, "        +User/Supervisor Bit    : %s\n", vmai[i].pgd_usb);
+    seq_printf(s, "        +Read/Write Bit         : %s\n", vmai[i].pgd_rwb);
+    seq_printf(s, "        +Page Present Bit       : %s\n", vmai[i].pgd_ppb);
 
     // 2 level paging (PUD Info)
     seq_printf(s, "************************************************************\n");
@@ -101,13 +101,13 @@ static int hw2_single_show(struct seq_file *s, void *unused){
     seq_printf(s, "code    PTE Address             : 0x%08lx\n", vmai[i].pte_a);
     seq_printf(s, "        PTE Value               : 0x%08lx\n", vmai[i].pte_v);
     seq_printf(s, "        +Page Base Address      : 0x%08lx\n", vmai[i].pte_pba);
-    seq_printf(s, "        +Dirty Bit              : %s\n", "0");
-    seq_printf(s, "        +Accessed Bit           : %s\n", "1");
-    seq_printf(s, "        +Cache Disable Bit      : %s\n", "false");
-    seq_printf(s, "        +Page Write-Through     : %s\n", "write-back");
-    seq_printf(s, "        +User/Supervisor        : %s\n", "user");
-    seq_printf(s, "        +Read/Write Bit         : %s\n", "read-only");
-    seq_printf(s, "        +Page Present Bit       : %s\n", "1");
+    seq_printf(s, "        +Dirty Bit              : %s\n", vmai[i].pte_db);
+    seq_printf(s, "        +Accessed Bit           : %s\n", vmai[i].pte_ab);
+    seq_printf(s, "        +Cache Disable Bit      : %s\n", vmai[i].pte_cdb);
+    seq_printf(s, "        +Page Write-Through     : %s\n", vmai[i].pte_pwt);
+    seq_printf(s, "        +User/Supervisor        : %s\n", vmai[i].pte_usb);
+    seq_printf(s, "        +Read/Write Bit         : %s\n", vmai[i].pte_rwb);
+    seq_printf(s, "        +Page Present Bit       : %s\n", vmai[i].pte_ppb);
     seq_printf(s, "************************************************************\n");
     seq_printf(s, "Start of Physical Address       : 0x%08lx\n", vmai[i].phy_a);
     seq_printf(s, "************************************************************\n");
@@ -168,8 +168,8 @@ void tasklet_handler(unsigned long data){
         // vmai[i].sla_e = m->;
         vmai[i].sla_p = (vmai[i].sla_e-vmai[i].sla_s) / 4096;
 
-        // vmai[i].sa_s = m->start_stack;
-        vmai[i].sa_e = m->start_stack;
+        vmai[i].sa_s = m->start_stack;
+        // vmai[i].sa_e = m->start_stack; vm end
         vmai[i].sa_p = (vmai[i].sa_e-vmai[i].sa_s) / 4096;
 
         // 1 level paging (PGD Info)
@@ -215,7 +215,7 @@ void tasklet_handler(unsigned long data){
         msb_clear = (vmai[i].pte_v << 1) >> 1;
         vmai[i].pte_pba = msb_clear >> PAGE_SHIFT;
 
-        vmai[i].pte_db = ((vmai[i].pgd_v >> 7)%2 == 0) ? "0" : "1";
+        vmai[i].pte_db = ((vmai[i].pgd_v >> 6)%2 == 0) ? "0" : "1";
         vmai[i].pte_ab = ((vmai[i].pgd_v >> 5)%2 == 0) ? "0" : "1";
         vmai[i].pte_cdb = ((vmai[i].pgd_v >> 4)%2 == 0) ? "false" : "true";
         vmai[i].pte_pwt = ((vmai[i].pgd_v >> 3)%2 == 0) ? "write-back" : "write-through";
@@ -259,6 +259,7 @@ int hw2_proc_init(void){
 }
 
 void hw2_proc_exit(void){
+    tasklet_kill(&ts);
     del_timer(&timer);
     proc_remove(hw2_proc_dir);
 }
