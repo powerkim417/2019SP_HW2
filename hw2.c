@@ -239,7 +239,7 @@ void tasklet_handler(unsigned long data){
         vmai[i].sa_p = (vmai[i].sa_p - 1) / page_size + 1;
 
         if (vmai[i].ba_e < vmai[i].ba_s) vmai[i].ba_p = 0; // if bss not exist
-        if (vmai[i].ha.e == vmai[i].ha_s) vmai[i].ha_p = 0; // if heap not exist
+        if (vmai[i].ha_e == vmai[i].ha_s) vmai[i].ha_p = 0; // if heap not exist
         // 2 level paging (PUD Info)
         vmai[i].pud_a = pud_offset(p4d_offset(vmai[i].pgd_a, vmai[i].ca_s), vmai[i].ca_s);
         vmai[i].pud_v = (unsigned) pud_val(*pud_offset(p4d_offset(vmai[i].pgd_a, vmai[i].ca_s), vmai[i].ca_s));
