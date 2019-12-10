@@ -10,38 +10,47 @@
 
 static int period = 5; // initialization
 module_param(period, int, 0);
+
 static struct timer_list timer;
 
 void tasklet_handler(unsigned long);
 DECLARE_TASKLET(ts, tasklet_handler, 0); //declare tasklet
 
 static struct proc_dir_entry *hw2_proc_dir = NULL;
-// static struct proc_dir_entry *hw2_proc_f
 static struct VMAI {
     char name[TASK_COMM_LEN];
     pid_t pid;
     int lut; // jiffies_to_msecs(jiffies)
 
+    // info about each area
     unsigned long ca_s, ca_e, da_s, da_e, ba_s, ba_e, ha_s, ha_e, sla_s, sla_e, sa_s, sa_e;
     unsigned long ca_p, da_p, ba_p, ha_p, sla_p, sa_p;
 
+    // 1 level paging (PGD Info)
     unsigned long pgd_ba, pgd_a, pgd_v, pgd_pfna;
     char pgd_ps[4], pgd_ab[2], pgd_cdb[6], pgd_pwt[14], pgd_usb[11], pgd_rwb[11], pgd_ppb[2];
 
+    // 2 level paging (PUD Info)
     unsigned long pud_a, pud_v, pud_pfna;
 
+    // 3 level paging (PMD Info)
     unsigned long pmd_a, pmd_v, pmd_pfna;
 
+    // 4 level paging (PTE info)
     unsigned long pte_a, pte_v, pte_pba;
     char pte_db[2], pte_ab[2], pte_cdb[6], pte_pwt[14], pte_usb[11], pte_rwb[11], pte_ppb[2];
 
+    // Physical address
     unsigned long phy_a;
 } vmai[32769];
 
 static int hw2_single_show(struct seq_file *s, void *unused){
+
+    // use file name to get pid
     const unsigned char *c = s->file->f_path.dentry->d_name.name;
     char **ep;
     int i = simple_strtol(c, ep, 10);
+
     seq_printf(s, "************************************************************\n");
     seq_printf(s, "Virtual Memory Address Information\n");
     seq_printf(s, "Process (%15s:%lu)\n", vmai[i].name, vmai[i].pid);
@@ -162,8 +171,8 @@ void tasklet_handler(unsigned long data){
         
         /*
         code data (bss) heap sharedlib stack ... */
-        bool no_bss = false;
-
+        
+        // finding bss area, sharedlib area, stack area end
         while (vm){
             // bss area may not exist
             if (vm->vm_start <= vmai[i].da_e && vmai[i].da_e <= vm->vm_next->vm_start){ // vm = start of bss area - 1
@@ -191,19 +200,19 @@ void tasklet_handler(unsigned long data){
             vm = vm->vm_next;
         }
 
-        vmai[i].ca_p = (vmai[i].ca_e-vmai[i].ca_s) / 4096;
-        vmai[i].da_p = (vmai[i].da_e-vmai[i].da_s) / 4096;
-        vmai[i].ba_p = (vmai[i].ba_e-vmai[i].ba_s) / 4096;
-        vmai[i].ha_p = (vmai[i].ha_e-vmai[i].ha_s) / 4096;
-        vmai[i].sla_p = (vmai[i].sla_e-vmai[i].sla_s) / 4096;
-        vmai[i].sa_p = (vmai[i].sa_e-vmai[i].sa_s) / 4096;
+        vmai[i].ca_p = (vmai[i].ca_e-vmai[i].ca_s);
+        vmai[i].da_p = (vmai[i].da_e-vmai[i].da_s);
+        vmai[i].ba_p = (vmai[i].ba_e-vmai[i].ba_s);
+        vmai[i].ha_p = (vmai[i].ha_e-vmai[i].ha_s);
+        vmai[i].sla_p = (vmai[i].sla_e-vmai[i].sla_s);
+        vmai[i].sa_p = (vmai[i].sa_e-vmai[i].sa_s);
 
         // 1 level paging (PGD Info)
         unsigned long msb_clear;
         vmai[i].pgd_ba = m->pgd;
         vmai[i].pgd_a = pgd_offset(m, vmai[i].ca_s);
         vmai[i].pgd_v = (unsigned) pgd_val(*pgd_offset(m, vmai[i].ca_s));
-        msb_clear = (vmai[i].pgd_v << 1) >> 1;
+        msb_clear = (vmai[i].pgd_v << 1) >> 1; // removing msb
         vmai[i].pgd_pfna = msb_clear >> PAGE_SHIFT;
 
         strncpy(vmai[i].pgd_ps, ((vmai[i].pgd_v >> 7)%2 == 0) ? "4KB" : "4MB", 4);
@@ -214,40 +223,39 @@ void tasklet_handler(unsigned long data){
         strncpy(vmai[i].pgd_rwb, ((vmai[i].pgd_v >> 1)%2 == 0) ? "read-only" : "read-write", 11);
         strncpy(vmai[i].pgd_ppb, (vmai[i].pgd_v%2 == 0) ? "0" : "1", 2);
 
+        // page number calculation
+        // 0: 0
+        // 1 ~ ps: 1
+        // ps+1 ~ 2ps: 2
+        int page_size = 4096;
         if ((vmai[i].pgd_v >> 7)%2 == 1){ // if page size is 4MB
-            vmai[i].ca_p /= 1024;
-            vmai[i].da_p /= 1024;
-            vmai[i].ba_p /= 1024;
-            vmai[i].ha_p /= 1024;
-            vmai[i].sla_p /= 1024;
-            vmai[i].sa_p /= 1024;
+            page_size *= 1024;
         }
-
-        vmai[i].ca_p++;
-        vmai[i].da_p++;
-        vmai[i].ba_p++;
-        vmai[i].ha_p++;
-        vmai[i].sla_p++;
-        vmai[i].sa_p++;
+        vmai[i].ca_p = (vmai[i].ca_p - 1) / page_size + 1;
+        vmai[i].da_p = (vmai[i].da_p - 1) / page_size + 1;
+        vmai[i].ba_p = (vmai[i].ba_p - 1) / page_size + 1;
+        vmai[i].ha_p = (vmai[i].ha_p - 1) / page_size + 1;
+        vmai[i].sla_p = (vmai[i].sla_p - 1) / page_size + 1;
+        vmai[i].sa_p = (vmai[i].sa_p - 1) / page_size + 1;
 
         if (vmai[i].ba_e < vmai[i].ba_s) vmai[i].ba_p = 0; // if bss not exist
 
         // 2 level paging (PUD Info)
         vmai[i].pud_a = pud_offset(p4d_offset(vmai[i].pgd_a, vmai[i].ca_s), vmai[i].ca_s);
         vmai[i].pud_v = (unsigned) pud_val(*pud_offset(p4d_offset(vmai[i].pgd_a, vmai[i].ca_s), vmai[i].ca_s));
-        msb_clear = (vmai[i].pud_v << 1) >> 1;
+        msb_clear = (vmai[i].pud_v << 1) >> 1; // removing msb
         vmai[i].pud_pfna = msb_clear >> PAGE_SHIFT;
 
         // 3 level paging (PMD Info)
         vmai[i].pmd_a = pmd_offset(vmai[i].pud_a, vmai[i].ca_s);
         vmai[i].pmd_v = (unsigned) pmd_val(*pmd_offset(vmai[i].pud_a, vmai[i].ca_s));
-        msb_clear = (vmai[i].pmd_v << 1) >> 1;
+        msb_clear = (vmai[i].pmd_v << 1) >> 1; // removing msb
         vmai[i].pmd_pfna = msb_clear >> PAGE_SHIFT;
 
         // 4 level paging (PTE Info)
         vmai[i].pte_a = pte_offset_kernel(vmai[i].pmd_a, vmai[i].ca_s);
         vmai[i].pte_v = (unsigned) pte_val(*pte_offset_kernel(vmai[i].pmd_a, vmai[i].ca_s));
-        msb_clear = (vmai[i].pte_v << 1) >> 1;
+        msb_clear = (vmai[i].pte_v << 1) >> 1; // removing msb
         vmai[i].pte_pba = msb_clear >> PAGE_SHIFT;
 
         strncpy(vmai[i].pte_db, ((vmai[i].pte_v >> 6)%2 == 0) ? "0" : "1", 2);
@@ -258,15 +266,14 @@ void tasklet_handler(unsigned long data){
         strncpy(vmai[i].pte_rwb, ((vmai[i].pte_v >> 1)%2 == 0) ? "read-only" : "read-write", 11);
         strncpy(vmai[i].pte_ppb, (vmai[i].pte_v%2 == 0) ? "0" : "1", 2);
 
-
         // Physical address
         vmai[i].phy_a = (vmai[i].pte_pba << PAGE_SHIFT) + (vmai[i].ca_s & 0xfff); // 12 lsb 
 
         char name[6];
         snprintf(name, sizeof(name), "%d", i);
-        printk("before: %d", i);
+        
+        // create /proc/hw2/[pid]
         proc_create(name, 644, hw2_proc_dir, &hw2_proc_ops);
-        printk("after: %d", i);
 
         a++;
         // printk("Current process pid: %d\n", p->pid);
@@ -276,6 +283,7 @@ void tasklet_handler(unsigned long data){
 }
 
 void timer_handler(struct timer_list *t){
+    // schedule tasklet
     tasklet_hi_schedule(&ts);
 
     // reschedule timer
