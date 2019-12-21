@@ -62,7 +62,7 @@ static int hw2_single_show(struct seq_file *s, void *unused){
     vmai[i].ca_s, vmai[i].ca_e, vmai[i].ca_p);
     seq_printf(s, "0x%08lx - 0x%08lx : Data Area, %lu page(s)\n",
     vmai[i].da_s, vmai[i].da_e, vmai[i].da_p);
-    seq_printf(s, "0x%08lx - 0x%08lx : BSS Area, %lu page(s)\n",
+    if (vmai[i].ba_s <= vmai[i].ba_e) seq_printf(s, "0x%08lx - 0x%08lx : BSS Area, %lu page(s)\n",
     vmai[i].ba_s, vmai[i].ba_e, vmai[i].ba_p);
     seq_printf(s, "0x%08lx - 0x%08lx : Heap Area, %lu page(s)\n",
     vmai[i].ha_s, vmai[i].ha_e, vmai[i].ha_p);
@@ -294,7 +294,10 @@ int hw2_proc_init(void){
     // initialize timer
     timer_setup(&timer, timer_handler, 0); 
 
+    // schedule tasklet
     hw2_proc_dir = proc_mkdir("hw2", NULL);
+
+    tasklet_hi_schedule(&ts);
 
     // schedule timer. when expires, run handler function(timer_handler)
     mod_timer(&timer, jiffies + msecs_to_jiffies(period*1000));
